@@ -107,14 +107,21 @@
 ### 第七步：获取多维表格 ID（app_token）
 
 1. 在飞书中打开你的多维表格
-2. 查看浏览器地址栏的 URL，格式如下：
+2. 查看浏览器地址栏的 URL，有新旧两种格式：
+
+   **新版 URL**（以 `/wiki/` 开头）：
    ```
-   https://xxxxxxxx.feishu.cn/base/XXXXXXXXXXXX?table=...
+   https://my.feishu.cn/wiki/XXXXXXXXXXXX?table=tblXXXXXXXXXXXX&view=vewXXXXXXXX
    ```
-3. URL 中 `/base/` 后面的那串字符，就是 **多维表格 ID（app_token）**
-   - 例如：`https://abc.feishu.cn/base/BascNvJ2oXpQ5hTqR?table=tblxxx`
-   - 其中 `BascNvJ2oXpQ5hTqR` 就是 app_token
-4. 复制这段字符，保存到记事本
+   其中 `/wiki/` 后面到 `?table=` 之前的部分就是 app_token：`XXXXXXXXXXXX`
+
+   **旧版 URL**（以 `/base/` 开头）：
+   ```
+   https://abc.feishu.cn/base/BascNvJ2oXpQ5hTqR?table=tblxxx
+   ```
+   其中 `/base/` 后面的部分就是 app_token：`BascNvJ2oXpQ5hTqR`
+
+3. 复制 app_token，保存到记事本
 
 ### 第八步：发布应用
 
