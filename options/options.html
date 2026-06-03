@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能收藏夹 · 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- ====== 页面标题 ====== -->
+    <header class="page-header">
+      <div class="logo">
+        <span class="logo-icon">📑</span>
+        <h1>智能收藏夹</h1>
+      </div>
+      <p class="subtitle">自动识别书签类型、生成摘要，同步到飞书多维表格</p>
+    </header>
+
+    <!-- ====== 云文档配置 ====== -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-icon">☁️</span>
+        <div>
+          <h2>云文档配置</h2>
+          <p class="card-desc">配置飞书应用和多维表格信息</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="feishu_app_id">飞书 App ID</label>
+            <div class="input-group">
+              <input type="text" id="feishu_app_id" placeholder="cli_xxxxxxxxxxxx" autocomplete="off">
+            </div>
+            <span class="form-hint">在飞书开发者后台创建应用后获取</span>
+          </div>
+          <div class="form-group">
+            <label for="feishu_app_secret">飞书 App Secret</label>
+            <div class="input-group">
+              <input type="password" id="feishu_app_secret" placeholder="●●●●●●●●●●●●●●●●" autocomplete="off">
+              <button type="button" class="toggle-password" tabindex="-1">👁️</button>
+            </div>
+            <span class="form-hint">应用凭证，请妥善保管</span>
+          </div>
+          <div class="form-group">
+            <label for="feishu_table_app_token">多维表格 ID (app_token)</label>
+            <div class="input-group">
+              <input type="text" id="feishu_table_app_token" placeholder="xxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+            </div>
+            <span class="form-hint">从多维表格 URL 中复制：/base/{app_token}?...</span>
+          </div>
+          <div class="form-group">
+            <label for="feishu_table_name">数据表名称</label>
+            <div class="input-group">
+              <input type="text" id="feishu_table_name" placeholder="书签收藏" autocomplete="off">
+            </div>
+            <span class="form-hint">多维表格中数据表的名称，如未创建请先新建</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="btn_verify_feishu" class="btn btn-secondary">
+            <span class="btn-icon">🔍</span> 验证连接
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====== 大模型配置 ====== -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-icon">🤖</span>
+        <div>
+          <h2>大模型配置</h2>
+          <p class="card-desc">选择模型厂家并配置 API 密钥</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="llm_provider">模型厂家</label>
+            <select id="llm_provider"></select>
+            <span class="form-hint">选择后自动填充模型名称和接口地址</span>
+          </div>
+          <div class="form-group">
+            <label for="llm_api_key">API Key</label>
+            <div class="input-group">
+              <input type="password" id="llm_api_key" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+              <button type="button" class="toggle-password" tabindex="-1">👁️</button>
+            </div>
+            <span class="form-hint">从对应平台获取 API Key</span>
+          </div>
+          <div class="form-group">
+            <label for="llm_model_name">模型名称</label>
+            <div class="input-group">
+              <input type="text" id="llm_model_name" placeholder="deepseek-chat" readonly autocomplete="off">
+            </div>
+            <span class="form-hint">选择厂家后自动填充，自定义模式可手动修改</span>
+          </div>
+          <div class="form-group">
+            <label for="llm_base_url">Base URL</label>
+            <div class="input-group">
+              <input type="text" id="llm_base_url" placeholder="https://api.deepseek.com/v1" readonly autocomplete="off">
+            </div>
+            <span class="form-hint">OpenAI 兼容接口地址，自定义模式可手动修改</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====== 用量设置 ====== -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-icon">📊</span>
+        <div>
+          <h2>用量设置</h2>
+          <p class="card-desc">管理每日 API 调用上限</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-grid usage-grid">
+          <div class="form-group">
+            <label for="daily_limit">每日 API 调用上限（次）</label>
+            <input type="number" id="daily_limit" min="1" max="9999" value="50">
+            <span class="form-hint">每次收藏会调用 2 次 API（分类 + 摘要），建议设为 50~200</span>
+          </div>
+          <div class="usage-status">
+            <div class="usage-card">
+              <span class="usage-label">今日已用</span>
+              <span class="usage-value" id="usage_today">0</span>
+              <span class="usage-sep">/</span>
+              <span class="usage-limit" id="usage_limit_display">50</span>
+              <span class="usage-unit">次</span>
+            </div>
+            <button type="button" id="btn_reset_usage" class="btn btn-text">🔄 重置计数</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====== 底部操作栏 ====== -->
+    <footer class="page-footer">
+      <button type="button" id="btn_save" class="btn btn-primary">
+        <span class="btn-icon">💾</span> 保存配置
+      </button>
+      <span class="footer-hint">配置保存后实时生效，无需重启插件</span>
+    </footer>
+
+  </div>
+
+  <script src="../lib/storage.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

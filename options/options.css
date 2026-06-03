@@ -1,0 +1,562 @@
+/**
+ * options.css — Linear App 风格的配置页面样式
+ * 设计原则：简约、专业、清晰的视觉层次
+ */
+
+/* ==================== CSS 变量 ==================== */
+
+:root {
+  /* 主色调 */
+  --color-bg: #f5f5f5;
+  --color-surface: #ffffff;
+  --color-border: #e5e5e5;
+  --color-border-hover: #d0d0d0;
+
+  /* 文字 */
+  --color-text: #1a1a1a;
+  --color-text-secondary: #6b6b6b;
+  --color-text-tertiary: #9b9b9b;
+
+  /* 强调色 */
+  --color-primary: #5e6ad2;
+  --color-primary-hover: #4f5ac0;
+  --color-primary-light: #eeeffb;
+
+  /* 状态色 */
+  --color-success: #2ea44f;
+  --color-success-bg: #e6f4ea;
+  --color-error: #cf222e;
+  --color-error-bg: #fde8e8;
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* 间距 */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* 字体 */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+
+  /* 过渡 */
+  --transition: 150ms ease;
+}
+
+/* ==================== 深色模式（可选适配） ==================== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1a1a1a;
+    --color-surface: #252525;
+    --color-border: #333333;
+    --color-border-hover: #444444;
+
+    --color-text: #e5e5e5;
+    --color-text-secondary: #9b9b9b;
+    --color-text-tertiary: #6b6b6b;
+
+    --color-primary: #7b83e8;
+    --color-primary-hover: #8f96f0;
+    --color-primary-light: #1e2035;
+
+    --color-success: #3fb950;
+    --color-success-bg: #162b1b;
+    --color-error: #f85149;
+    --color-error-bg: #2d1215;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ==================== 全局重置 ==================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-family);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ==================== 布局容器 ==================== */
+
+.container {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: var(--space-xl) var(--space-lg) var(--space-2xl);
+}
+
+/* ==================== 页面标题 ==================== */
+
+.page-header {
+  margin-bottom: var(--space-xl);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.logo-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.logo h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  padding-left: 36px; /* 对齐 logo icon + gap */
+}
+
+/* ==================== 卡片 ==================== */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-md);
+  overflow: hidden;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-lg) 0;
+}
+
+.card-icon {
+  font-size: 20px;
+  line-height: 1;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.card-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.card-desc {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.card-body {
+  padding: var(--space-lg);
+}
+
+/* ==================== 表单 ==================== */
+
+.form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  letter-spacing: -0.005em;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+/* ==================== 输入框 ==================== */
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+select {
+  width: 100%;
+  height: 38px;
+  padding: 0 var(--space-sm);
+  font-size: 14px;
+  font-family: var(--font-family);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+input[readonly] {
+  background: var(--color-bg);
+  cursor: default;
+}
+
+/* ==================== 下拉框 ==================== */
+
+select {
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239b9b9b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px;
+}
+
+select optgroup {
+  font-weight: 600;
+  font-style: normal;
+  color: var(--color-text-secondary);
+}
+
+select option {
+  font-weight: 400;
+  padding: var(--space-xs) 0;
+}
+
+/* ==================== 输入组（密码可见切换） ==================== */
+
+.input-group {
+  position: relative;
+  display: flex;
+}
+
+.input-group input {
+  padding-right: 40px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 38px;
+  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--color-text-tertiary);
+  transition: color var(--transition);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.toggle-password:hover {
+  color: var(--color-text-secondary);
+}
+
+/* ==================== 用量状态 ==================== */
+
+.usage-grid {
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.usage-grid > .form-group {
+  flex: 1;
+  min-width: 200px;
+}
+
+.usage-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.usage-card {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+.usage-label {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin-right: var(--space-xs);
+}
+
+.usage-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.usage-sep {
+  font-size: 18px;
+  color: var(--color-text-tertiary);
+  margin: 0 2px;
+}
+
+.usage-limit {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.usage-unit {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin-left: 2px;
+}
+
+/* ==================== 按钮 ==================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  height: 38px;
+  padding: 0 var(--space-md);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--font-family);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  letter-spacing: -0.005em;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* 主按钮 */
+.btn-primary {
+  background: var(--color-primary);
+  color: #ffffff;
+  border-color: var(--color-primary);
+}
+
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 次要按钮 */
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.btn-secondary:hover {
+  background: var(--color-bg);
+  border-color: var(--color-border-hover);
+}
+
+/* 文字按钮 */
+.btn-text {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: none;
+  height: auto;
+  padding: var(--space-xs);
+  font-size: 13px;
+}
+
+.btn-text:hover {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+/* 加载状态 */
+.btn.loading {
+  position: relative;
+  color: transparent !important;
+}
+
+.btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  opacity: 1;
+}
+
+.btn-primary.loading::after {
+  border-top-color: #ffffff;
+}
+
+.btn-secondary.loading::after {
+  border-top-color: var(--color-text);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==================== 表单操作区 ==================== */
+
+.form-actions {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ==================== 底部 ==================== */
+
+.page-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.footer-hint {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+}
+
+/* ==================== Toast 通知 ==================== */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transition: all var(--transition);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast-success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.toast-error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+}
+
+/* ==================== 响应式 ==================== */
+
+@media (max-width: 600px) {
+  .container {
+    padding: var(--space-md);
+  }
+
+  .usage-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .usage-status {
+    justify-content: space-between;
+  }
+
+  .page-footer {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .btn-primary {
+    justify-content: center;
+  }
+}
