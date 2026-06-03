@@ -536,6 +536,38 @@ select option {
 
 /* ==================== 批量导入 ==================== */
 
+/* 重试栏 */
+.retry-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  gap: var(--space-md);
+}
+
+.retry-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.retry-icon {
+  font-size: 18px;
+}
+
+.retry-text {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.retry-text strong {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
 /* 拖拽区域 */
 .import-dropzone {
   border: 2px dashed var(--color-border);

@@ -149,6 +149,17 @@
         </div>
       </div>
       <div class="card-body">
+        <!-- 重试飞书失败记录 -->
+        <div class="retry-bar" id="retry_bar">
+          <div class="retry-info">
+            <span class="retry-icon">🔄</span>
+            <span class="retry-text">飞书中还有 <strong id="retry_count">-</strong> 条失败书签待重试</span>
+          </div>
+          <button type="button" id="btn_retry_failed" class="btn btn-secondary" disabled>
+            <span class="btn-icon">🚀</span> 重试全部失败书签
+          </button>
+        </div>
+
         <!-- 导入区域 -->
         <div id="import_ready">
           <div class="import-dropzone" id="dropzone">

@@ -256,6 +256,108 @@ async function processBatchImport(bookmarks) {
 }
 
 /**
+ * 重试飞书「同步失败记录」表中的所有失败书签
+ * 成功 → 从失败表删除 + 写入书签收藏表
+ * 失败 → 更新失败表中的原因
+ */
+async function processRetryFailed() {
+  if (batchRunning) {
+    return { success: false, message: '已有任务在执行中' };
+  }
+
+  batchRunning = true;
+  batchCancelled = false;
+
+  // 从飞书读取失败记录
+  let failedRecords;
+  try {
+    failedRecords = await getFailedRecords();
+  } catch (error) {
+    batchRunning = false;
+    return { success: false, message: '读取飞书失败记录失败：' + error.message };
+  }
+
+  if (failedRecords.length === 0) {
+    batchRunning = false;
+    sendProgress({ phase: 'complete', total: 0, successCount: 0, failCount: 0, skippedCount: 0, message: '飞书中没有失败记录' });
+    return { success: true, total: 0, successCount: 0, failCount: 0, skippedCount: 0 };
+  }
+
+  const total = failedRecords.length;
+  let successCount = 0;
+  let failCount = 0;
+
+  sendProgress({ phase: 'start', total, message: `开始重试 ${total} 条失败书签...` });
+
+  for (let i = 0; i < failedRecords.length; i++) {
+    if (batchCancelled) {
+      sendProgress({ phase: 'cancelled', current: i, total, successCount, failCount, skippedCount: 0 });
+      batchRunning = false;
+      batchCancelled = false;
+      return { success: false, cancelled: true, total, successCount, failCount, skippedCount: 0 };
+    }
+
+    // 检查每日用量
+    const usage = await getDailyUsage();
+    if (usage.blocked) {
+      sendProgress({
+        phase: 'blocked', current: i, total, successCount, failCount, skippedCount: 0,
+        message: `每日 API 用量已达上限 (${usage.today}/${usage.limit})，剩余 ${total - i} 条跳过`
+      });
+      break;
+    }
+
+    const record = failedRecords[i];
+    sendProgress({
+      phase: 'processing', current: i + 1, total, successCount, failCount, skippedCount: 0,
+      currentTitle: record.title
+    });
+
+    if (!record.url || (!record.url.startsWith('http://') && !record.url.startsWith('https://'))) {
+      failCount++;
+      continue;
+    }
+
+    try {
+      const [pageType, pageSummary] = await Promise.all([
+        classifyPage(record.title, record.url, record.title),
+        summarizePage(record.title, record.title)
+      ]);
+
+      await incrementDailyUsage();
+      await incrementDailyUsage();
+
+      // 写入书签收藏表
+      await addRecord({ page_type: pageType, page_url: record.url, page_summary: pageSummary });
+
+      // 从失败表删除
+      await deleteFailedRecord(record.record_id);
+
+      successCount++;
+      console.log(`[智能收藏夹] 重试 [${i + 1}/${total}] ✅ ${record.title}`);
+    } catch (error) {
+      failCount++;
+      console.error(`[智能收藏夹] 重试 [${i + 1}/${total}] ❌ ${record.title}:`, error.message);
+      // 更新失败原因（删旧记录 + 写新记录）
+      try {
+        await deleteFailedRecord(record.record_id);
+      } catch (_) { /* 忽略 */ }
+      await addFailedRecord({ title: record.title, url: record.url }, '(重试) ' + error.message);
+    }
+  }
+
+  sendProgress({
+    phase: 'complete', current: total, total, successCount, failCount, skippedCount: 0,
+    message: `重试完成：成功 ${successCount}，失败 ${failCount}`
+  });
+
+  batchRunning = false;
+  batchCancelled = false;
+
+  return { success: true, total, successCount, failCount, skippedCount: 0 };
+}
+
+/**
  * 向 options 页面发送进度消息
  */
 function sendProgress(data) {
@@ -415,6 +517,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'cancel_import') {
     batchCancelled = true;
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'get_failed_count') {
+    getFailedRecordCount().then(count => sendResponse({ count })).catch(() => sendResponse({ count: 0 }));
+    return true;
+  }
+
+  if (message.type === 'retry_failed') {
+    processRetryFailed().then(summary => {
+      chrome.runtime.sendMessage({ type: 'import_complete', ...summary }).catch(() => {});
+    });
     sendResponse({ success: true });
     return false;
   }

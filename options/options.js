@@ -13,6 +13,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
   await loadUsage();
+  await loadFailedCount();
   bindEvents();
   bindImportEvents();
   bindProgressListener();
@@ -280,6 +281,7 @@ function bindImportEvents() {
   const btnClear = document.getElementById('btn_clear_file');
   const btnStart = document.getElementById('btn_start_import');
   const btnCancel = document.getElementById('btn_cancel_import');
+  const btnRetry = document.getElementById('btn_retry_failed');
 
   // 点击选择文件
   btnSelect.addEventListener('click', () => fileInput.click());
@@ -301,10 +303,55 @@ function bindImportEvents() {
     if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
   });
 
-  // 清除文件 + 开始导入 + 取消
+  // 清除文件 + 开始导入 + 取消 + 重试
   btnClear.addEventListener('click', clearFile);
   btnStart.addEventListener('click', startImport);
   btnCancel.addEventListener('click', cancelImport);
+  btnRetry.addEventListener('click', retryFailed);
+}
+
+async function loadFailedCount() {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'get_failed_count' });
+    updateRetryButton(result?.count || 0);
+  } catch {
+    updateRetryButton(0);
+  }
+}
+
+function updateRetryButton(count) {
+  const btn = document.getElementById('btn_retry_failed');
+  const text = document.getElementById('retry_count');
+  text.textContent = count;
+  if (count > 0) {
+    btn.disabled = false;
+    text.style.color = 'var(--color-error)';
+  } else {
+    btn.disabled = true;
+    text.textContent = '0';
+    text.style.color = 'var(--color-text-tertiary)';
+  }
+}
+
+async function retryFailed() {
+  importInProgress = true;
+
+  // 隐藏文件选择区域和重试栏，显示进度
+  document.getElementById('import_ready').style.display = 'none';
+  document.getElementById('retry_bar').style.display = 'none';
+  document.getElementById('import_progress').style.display = 'flex';
+  document.getElementById('import_result').style.display = 'none';
+
+  // 重置进度
+  document.getElementById('progress_fill').style.width = '0%';
+  document.getElementById('progress_counter').textContent = '0 / 0';
+  document.getElementById('stat_success').textContent = '0';
+  document.getElementById('stat_fail').textContent = '0';
+  document.getElementById('stat_skip').textContent = '0';
+  document.getElementById('progress_current').textContent = '';
+  document.getElementById('progress_title').textContent = '正在读取飞书失败记录...';
+
+  chrome.runtime.sendMessage({ type: 'retry_failed' }).catch(() => {});
 }
 
 async function handleFile(file) {
@@ -346,6 +393,7 @@ function clearFile() {
   document.getElementById('file_info').style.display = 'none';
   document.getElementById('import_progress').style.display = 'none';
   document.getElementById('import_result').style.display = 'none';
+  document.getElementById('retry_bar').style.display = '';
   importInProgress = false;
 }
 
@@ -357,8 +405,9 @@ async function startImport() {
 
   importInProgress = true;
 
-  // 切换到进度视图
+  // 切换到进度视图，隐藏其他区域
   document.getElementById('file_info').style.display = 'none';
+  document.getElementById('retry_bar').style.display = 'none';
   document.getElementById('import_progress').style.display = 'flex';
   document.getElementById('import_result').style.display = 'none';
 
@@ -433,6 +482,10 @@ function showResult(data) {
   resultDiv.style.display = 'block';
   document.getElementById('import_progress').style.display = 'none';
 
+  // 恢复文件选择区域和重试栏
+  document.getElementById('import_ready').style.display = '';
+  document.getElementById('retry_bar').style.display = '';
+
   const failCount = data.failCount || 0;
   const successCount = data.successCount || 0;
   const skippedCount = data.skippedCount || 0;
@@ -440,11 +493,11 @@ function showResult(data) {
 
   let icon, title, cardClass;
   if (cancelled) {
-    icon = '⚠️'; title = '导入已取消'; cardClass = 'result-cancelled';
+    icon = '⚠️'; title = '已取消'; cardClass = 'result-cancelled';
   } else if (failCount === 0 && successCount > 0) {
     icon = '🎉'; title = '全部导入成功'; cardClass = 'result-success';
   } else if (successCount > 0 || failCount > 0) {
-    icon = '📋'; title = '导入完成（含失败项）'; cardClass = 'result-partial';
+    icon = '📋'; title = '处理完成（含失败项）'; cardClass = 'result-partial';
   } else {
     icon = '📋'; title = '无记录被处理'; cardClass = 'result-cancelled';
   }
@@ -453,19 +506,30 @@ function showResult(data) {
   card.innerHTML = `
     <div class="result-title">${icon} ${title}</div>
     <div class="result-detail">
-      总书签数：<strong>${data.total}</strong><br>
-      成功同步：<strong style="color:var(--color-success)">${successCount}</strong> 条<br>
-      同步失败：<strong style="color:var(--color-error)">${failCount}</strong> 条<br>
-      跳过处理：<strong style="color:var(--color-text-tertiary)">${skippedCount}</strong> 条
-      ${failCount > 0 ? `<br><br>💡 <em>失败的书签已自动记录到飞书「同步失败记录」表中，可前往查看。</em>` : ''}
+      总数：<strong>${data.total}</strong><br>
+      成功：<strong style="color:var(--color-success)">${successCount}</strong> 条<br>
+      失败：<strong style="color:var(--color-error)">${failCount}</strong> 条<br>
+      跳过：<strong style="color:var(--color-text-tertiary)">${skippedCount}</strong> 条
+      ${failCount > 0 ? `<br><br>💡 <em>失败的书签已自动记录到飞书「同步失败记录」表中，可点击上方按钮重试。</em>` : ''}
     </div>
     <div class="result-actions">
       <button type="button" class="btn btn-secondary" onclick="document.getElementById('btn_clear_file').click()">
         📂 选择其他文件
       </button>
+      ${failCount > 0 ? `<button type="button" class="btn btn-primary" id="btn_retry_again">🔄 重试失败项</button>` : ''}
     </div>
   `;
 
-  // 更新用量显示
+  // 绑定结果卡片中的重试按钮
+  const btnRetryAgain = document.getElementById('btn_retry_again');
+  if (btnRetryAgain) {
+    btnRetryAgain.addEventListener('click', () => {
+      resultDiv.style.display = 'none';
+      retryFailed();
+    });
+  }
+
+  // 更新用量显示 + 刷新失败计数
   loadUsage();
+  loadFailedCount();
 }
