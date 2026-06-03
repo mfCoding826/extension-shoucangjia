@@ -98,6 +98,9 @@ function bindEvents() {
   // 验证飞书配置
   document.getElementById('btn_verify_feishu').addEventListener('click', onVerifyFeishu);
 
+  // 验证大模型配置
+  document.getElementById('btn_verify_llm').addEventListener('click', onVerifyLlm);
+
   // 重置用量
   document.getElementById('btn_reset_usage').addEventListener('click', onResetUsage);
 
@@ -214,6 +217,32 @@ async function onVerifyFeishu() {
     showToast('验证请求失败：' + error.message, 'error');
   } finally {
     setButtonLoading(btn, false, '验证连接');
+  }
+}
+
+async function onVerifyLlm() {
+  const btn = document.getElementById('btn_verify_llm');
+  setButtonLoading(btn, true, '测试中...');
+
+  try {
+    // 先保存当前配置（测试需要用到）
+    await saveConfig({
+      llm_provider: getValue('llm_provider'),
+      llm_api_key: getValue('llm_api_key'),
+      llm_model_name: getValue('llm_model_name'),
+      llm_base_url: getValue('llm_base_url')
+    });
+
+    const result = await chrome.runtime.sendMessage({ type: 'validate_llm' });
+    if (result.success) {
+      showToast(result.message, 'success');
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (error) {
+    showToast('测试请求失败：' + error.message, 'error');
+  } finally {
+    setButtonLoading(btn, false, '测试连接');
   }
 }
 

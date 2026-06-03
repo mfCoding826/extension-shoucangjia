@@ -534,6 +534,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'validate_llm') {
+    validateLlmConfig().then(sendResponse).catch(err => sendResponse({ success: false, message: err.message }));
+    return true;
+  }
+
   if (message.type === 'parse_bookmark_file') {
     // 在 Service Worker 中解析书签文件（避免大文件在页面线程阻塞）
     try {
