@@ -18,15 +18,54 @@ importScripts('lib/storage.js', 'lib/llm.js', 'lib/cloud-doc.js', 'lib/bookmark-
 let batchRunning = false;   // 是否有批量任务进行中
 let batchCancelled = false; // 是否已取消
 
+// ==================== 日志系统 ====================
+
+const MAX_LOG_ENTRIES = 200;
+const logBuffer = [];
+
+/**
+ * 记录一条日志（同时输出到 console）
+ * @param {'info'|'success'|'error'|'warn'} level
+ * @param {string} message
+ * @param {string} [detail]
+ */
+function addLog(level, message, detail) {
+  const now = new Date();
+  const time = now.toLocaleTimeString('zh-CN', { hour12: false });
+  const entry = { time, level, message, detail: detail || '' };
+  logBuffer.push(entry);
+
+  // 同时输出到 console
+  const prefix = '[智能收藏夹]';
+  switch (level) {
+    case 'error': console.error(prefix, message, detail || ''); break;
+    case 'warn':  console.warn(prefix, message, detail || ''); break;
+    default:      console.log(prefix, message, detail || ''); break;
+  }
+
+  // 超出上限时移除旧日志
+  while (logBuffer.length > MAX_LOG_ENTRIES) {
+    logBuffer.shift();
+  }
+}
+
+function getLogs() {
+  return logBuffer.slice();
+}
+
+function clearLogs() {
+  logBuffer.length = 0;
+}
+
 // ==================== 书签创建事件监听 ====================
 
 chrome.bookmarks.onCreated.addListener(async (id, bookmark) => {
-  console.log('[智能收藏夹] 书签创建事件触发:', bookmark.title);
+  addLog('info', `书签创建: ${bookmark.title || '(无标题)'}`);
 
   try {
     await handleBookmarkCreated(bookmark);
   } catch (error) {
-    console.error('[智能收藏夹] 处理书签失败:', error);
+    addLog('error', '处理书签失败: ' + error.message);
     showNotification('同步失败', error.message);
   }
 });
@@ -39,20 +78,20 @@ chrome.bookmarks.onCreated.addListener(async (id, bookmark) => {
 async function handleBookmarkCreated(bookmark) {
   // --- 1. 过滤空收藏（没有 URL 的书签） ---
   if (!bookmark.url) {
-    console.log('[智能收藏夹] 跳过无 URL 的书签（可能是空文件夹）');
+    addLog('warn', '跳过空收藏（无URL）');
     return;
   }
 
-  // 过滤非 http/https 协议的 URL（如 chrome://、edge://、about: 等）
+  // 过滤非 http/https 协议的 URL
   if (!bookmark.url.startsWith('http://') && !bookmark.url.startsWith('https://')) {
-    console.log('[智能收藏夹] 跳过非 HTTP 协议的 URL:', bookmark.url);
+    addLog('warn', `跳过非HTTP协议: ${bookmark.url}`);
     return;
   }
 
   // --- 2. 检查每日用量限制 ---
   const usage = await getDailyUsage();
   if (usage.blocked) {
-    console.log('[智能收藏夹] 今日 API 调用次数已达上限:', usage.limit);
+    addLog('warn', `每日用量已达上限: ${usage.today}/${usage.limit}`);
     showNotification('达到每日上限', `今日已使用 ${usage.today}/${usage.limit} 次，请在设置中调整上限`);
     return;
   }
@@ -60,26 +99,24 @@ async function handleBookmarkCreated(bookmark) {
   // --- 3. 获取配置 ---
   const config = await getConfig();
 
-  // 检查必要配置是否存在
   if (!config.llm_api_key) {
-    console.log('[智能收藏夹] 未配置大模型 API Key，跳过处理');
+    addLog('warn', '未配置大模型 API Key');
     showNotification('配置不完整', '请先设置大模型 API Key');
     return;
   }
   if (!config.feishu_app_id || !config.feishu_app_secret) {
-    console.log('[智能收藏夹] 未配置飞书信息，跳过处理');
+    addLog('warn', '未配置飞书应用信息');
     showNotification('配置不完整', '请先设置飞书应用配置');
     return;
   }
 
   // --- 4. 抓取页面内容 ---
-  // 查找包含该书签 URL 的标签页
   let pageData = null;
   try {
     pageData = await fetchPageContent(bookmark.url);
+    addLog('info', `页面内容抓取成功: ${pageData.title.substring(0, 30)}`);
   } catch (fetchError) {
-    console.warn('[智能收藏夹] 页面内容抓取失败，使用书签标题:', fetchError.message);
-    // 如果抓取失败，使用书签标题作为退路
+    addLog('warn', `页面内容抓取失败，使用标题代替: ${fetchError.message}`);
     pageData = {
       title: bookmark.title || '',
       url: bookmark.url,
@@ -93,22 +130,19 @@ async function handleBookmarkCreated(bookmark) {
   let pageType, pageSummary;
 
   try {
-    // 分类和摘要可以并行调用
     [pageType, pageSummary] = await Promise.all([
       classifyPage(pageData.title, pageData.url, pageData.content),
       summarizePage(pageData.title, pageData.content)
     ]);
 
-    // 每次成功的 LLM 调用计数 +2（分类 + 摘要）
     await incrementDailyUsage();
     await incrementDailyUsage();
+    addLog('success', `大模型分析完成: 类型="${pageType}" 摘要="${pageSummary.substring(0, 30)}..."`);
   } catch (llmError) {
-    console.error('[智能收藏夹] 大模型调用失败:', llmError);
+    addLog('error', `大模型调用失败: ${llmError.message}`, JSON.stringify({ url: pageData.url }));
     showNotification('分析失败', `大模型调用失败：${llmError.message}`);
     return;
   }
-
-  console.log('[智能收藏夹] 分析结果:', { pageType, pageSummary });
 
   // --- 6. 写入飞书多维表格 ---
   try {
@@ -117,14 +151,16 @@ async function handleBookmarkCreated(bookmark) {
       page_url: pageData.url,
       page_summary: pageSummary
     });
+    addLog('success', `飞书写入成功: ${pageData.title.substring(0, 30)}`);
   } catch (feishuError) {
-    console.error('[智能收藏夹] 飞书写入失败:', feishuError);
+    addLog('error', `飞书写入失败: ${feishuError.message}`, JSON.stringify({ url: pageData.url, type: pageType }));
     showNotification('同步失败', `飞书写入失败：${feishuError.message}`);
     return;
   }
 
   // --- 7. 成功通知 ---
   const newUsage = await getDailyUsage();
+  addLog('success', `同步完成 ✅ 类型=${pageType} 用量=${newUsage.today}/${newUsage.limit}`);
   showNotification(
     '收藏同步成功 ✅',
     `类型：${pageType} | 今日已用 ${newUsage.today}/${newUsage.limit} 次`
@@ -162,11 +198,13 @@ async function processBatchImport(bookmarks) {
   let failCount = 0;
   let skippedCount = 0;
 
+  addLog('info', `开始批量导入: ${total} 条书签`);
   sendProgress({ phase: 'start', total, message: `开始处理 ${total} 条书签...` });
 
   for (let i = 0; i < bookmarks.length; i++) {
     // 检查是否取消
     if (batchCancelled) {
+      addLog('warn', `批量导入已取消 (已处理 ${i}/${total})`);
       sendProgress({ phase: 'cancelled', current: i, total, successCount, failCount, skippedCount });
       batchRunning = false;
       batchCancelled = false;
@@ -178,6 +216,7 @@ async function processBatchImport(bookmarks) {
     // 检查每日用量
     const usage = await getDailyUsage();
     if (usage.blocked) {
+      addLog('warn', `批量导入达到每日上限: ${usage.today}/${usage.limit}`);
       sendProgress({
         phase: 'blocked',
         current: i,
@@ -230,14 +269,15 @@ async function processBatchImport(bookmarks) {
       });
 
       successCount++;
-      console.log(`[智能收藏夹] [${i + 1}/${total}] ✅ ${title}`);
+      // --- 批量导入成功日志 ---
     } catch (error) {
       failCount++;
-      console.error(`[智能收藏夹] [${i + 1}/${total}] ❌ ${title}:`, error.message);
-      // 失败记录写入飞书「同步失败记录」表
+      addLog('error', `[${i + 1}/${total}] 导入失败: ${title}`, error.message);
       await addFailedRecord(bm, error.message);
     }
   }
+
+  addLog('info', `批量导入完成: 成功${successCount} 失败${failCount} 跳过${skippedCount}`);
 
   sendProgress({
     phase: 'complete',
@@ -334,11 +374,10 @@ async function processRetryFailed() {
       await deleteFailedRecord(record.record_id);
 
       successCount++;
-      console.log(`[智能收藏夹] 重试 [${i + 1}/${total}] ✅ ${record.title}`);
+      // --- 重试成功 ---
     } catch (error) {
       failCount++;
-      console.error(`[智能收藏夹] 重试 [${i + 1}/${total}] ❌ ${record.title}:`, error.message);
-      // 更新失败原因（删旧记录 + 写新记录）
+      addLog('error', `[${i + 1}/${total}] 重试失败: ${record.title}`, error.message);
       try {
         await deleteFailedRecord(record.record_id);
       } catch (_) { /* 忽略 */ }
@@ -346,6 +385,7 @@ async function processRetryFailed() {
     }
   }
 
+  addLog('info', `重试失败书签完成: 成功${successCount} 失败${failCount}`);
   sendProgress({
     phase: 'complete', current: total, total, successCount, failCount, skippedCount: 0,
     message: `重试完成：成功 ${successCount}，失败 ${failCount}`
@@ -530,6 +570,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     processRetryFailed().then(summary => {
       chrome.runtime.sendMessage({ type: 'import_complete', ...summary }).catch(() => {});
     });
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'get_logs') {
+    sendResponse({ logs: getLogs() });
+    return false;
+  }
+
+  if (message.type === 'clear_logs') {
+    clearLogs();
     sendResponse({ success: true });
     return false;
   }

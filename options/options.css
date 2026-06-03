@@ -769,6 +769,101 @@ select option {
   gap: var(--space-sm);
 }
 
+/* ==================== 运行日志 ==================== */
+
+.log-header-clickable {
+  cursor: pointer;
+  user-select: none;
+  width: 100%;
+}
+
+.log-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.log-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 20px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  padding: 0 6px;
+  vertical-align: middle;
+}
+
+.log-container {
+  background: #1e1e1e;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  max-height: 360px;
+  overflow-y: auto;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.log-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.log-container::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 3px;
+}
+
+.log-empty {
+  color: #888;
+  text-align: center;
+  padding: var(--space-xl) 0;
+}
+
+.log-entry {
+  display: flex;
+  gap: var(--space-sm);
+  padding: 2px 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.log-entry:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: #6b6b6b;
+  flex-shrink: 0;
+}
+
+.log-level {
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 40px;
+}
+
+.log-level-info { color: #5ea3e6; }
+.log-level-success { color: #73c991; }
+.log-level-warn { color: #e5b85c; }
+.log-level-error { color: #f76c6c; }
+
+.log-message {
+  color: #d4d4d4;
+  word-break: break-all;
+}
+
+.log-detail {
+  color: #888;
+  font-size: 11px;
+  margin-left: 8px;
+  word-break: break-all;
+}
+
 /* ==================== 响应式 ==================== */
 
 @media (max-width: 600px) {

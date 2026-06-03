@@ -219,6 +219,27 @@
       </div>
     </section>
 
+    <!-- ====== 运行日志 ====== -->
+    <section class="card" id="log-card">
+      <div class="card-header log-header-clickable" id="log_header_click">
+        <span class="card-icon">📋</span>
+        <div>
+          <h2>运行日志 <span class="log-badge" id="log_badge" style="display:none">0</span></h2>
+          <p class="card-desc">查看书签同步和 API 调用的详细记录</p>
+        </div>
+        <div class="log-header-actions">
+          <button type="button" id="btn_refresh_logs" class="btn btn-text">🔄 刷新</button>
+          <button type="button" id="btn_clear_logs" class="btn btn-text">🗑️ 清空</button>
+          <button type="button" id="btn_toggle_logs" class="btn btn-text">▼ 展开</button>
+        </div>
+      </div>
+      <div class="card-body" id="log_body" style="display:none">
+        <div class="log-container" id="log_container">
+          <div class="log-empty" id="log_empty">暂无日志，开始使用插件后这里会显示运行记录</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ====== 底部操作栏 ====== -->
     <footer class="page-footer">
       <button type="button" id="btn_save" class="btn btn-primary">

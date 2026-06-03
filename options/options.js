@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
   bindImportEvents();
   bindProgressListener();
+  bindLogPanel();
 });
 
 // ==================== 加载配置 ====================
@@ -450,6 +451,11 @@ function bindProgressListener() {
 }
 
 function updateProgress(data) {
+  // 自动刷新日志（仅在日志面板展开时）
+  if (logsExpanded && data.phase === 'processing') {
+    fetchLogs();
+  }
+
   const pct = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
 
   document.getElementById('progress_counter').textContent = `${data.current || 0} / ${data.total}`;
@@ -532,4 +538,105 @@ function showResult(data) {
   // 更新用量显示 + 刷新失败计数
   loadUsage();
   loadFailedCount();
+}
+
+// ==================== 运行日志面板 ====================
+
+let logsExpanded = false;
+
+function bindLogPanel() {
+  // 点击标题栏切换展开/折叠
+  document.getElementById('log_header_click').addEventListener('click', (e) => {
+    // 不拦截按钮点击
+    if (e.target.closest('button')) return;
+    toggleLogPanel();
+  });
+
+  document.getElementById('btn_toggle_logs').addEventListener('click', toggleLogPanel);
+  document.getElementById('btn_refresh_logs').addEventListener('click', fetchLogs);
+  document.getElementById('btn_clear_logs').addEventListener('click', async () => {
+    await chrome.runtime.sendMessage({ type: 'clear_logs' });
+    fetchLogs();
+  });
+}
+
+function toggleLogPanel() {
+  logsExpanded = !logsExpanded;
+  const body = document.getElementById('log_body');
+  const btn = document.getElementById('btn_toggle_logs');
+  if (logsExpanded) {
+    body.style.display = '';
+    btn.textContent = '▲ 收起';
+    fetchLogs();
+  } else {
+    body.style.display = 'none';
+    btn.textContent = '▼ 展开';
+  }
+}
+
+async function fetchLogs() {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'get_logs' });
+    renderLogs(result?.logs || []);
+  } catch {
+    renderLogs([]);
+  }
+}
+
+function renderLogs(logs) {
+  const container = document.getElementById('log_container');
+  const empty = document.getElementById('log_empty');
+  const badge = document.getElementById('log_badge');
+
+  // 更新计数徽标
+  if (logs.length > 0) {
+    badge.style.display = '';
+    badge.textContent = logs.length;
+  } else {
+    badge.style.display = 'none';
+  }
+
+  if (logs.length === 0) {
+    empty.style.display = '';
+    // 清空已有日志条目
+    container.querySelectorAll('.log-entry').forEach(el => el.remove());
+    return;
+  }
+
+  empty.style.display = 'none';
+
+  // 构建日志 HTML
+  const html = logs.map(entry => {
+    const levelLabel = { info: '信息', success: '成功', warn: '警告', error: '错误' }[entry.level] || entry.level;
+    const detailHtml = entry.detail
+      ? `<span class="log-detail">${escapeHtml(entry.detail)}</span>`
+      : '';
+    return `<div class="log-entry">
+      <span class="log-time">${escapeHtml(entry.time)}</span>
+      <span class="log-level log-level-${entry.level}">${levelLabel}</span>
+      <span class="log-message">${escapeHtml(entry.message)}${detailHtml}</span>
+    </div>`;
+  }).join('');
+
+  // 检查是否在底部（自动滚动）
+  const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+
+  // 使用 innerHTML 替换全部日志（保持简洁）
+  const existing = container.querySelectorAll('.log-entry');
+  if (existing.length !== logs.length || logs.length === 0) {
+    container.innerHTML = html + '<div class="log-empty" id="log_empty" style="display:none">暂无日志</div>';
+  } else {
+    // 增量更新：只更新变化的部分
+    container.innerHTML = html + '<div class="log-empty" id="log_empty" style="display:none">暂无日志</div>';
+  }
+
+  if (wasAtBottom) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
