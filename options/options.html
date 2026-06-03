@@ -139,6 +139,75 @@
       </div>
     </section>
 
+    <!-- ====== 批量导入书签 ====== -->
+    <section class="card" id="import-section">
+      <div class="card-header">
+        <span class="card-icon">📥</span>
+        <div>
+          <h2>批量导入书签</h2>
+          <p class="card-desc">导入 Chrome 导出的书签 HTML 文件，批量同步到飞书</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <!-- 导入区域 -->
+        <div id="import_ready">
+          <div class="import-dropzone" id="dropzone">
+            <div class="dropzone-content">
+              <span class="dropzone-icon">📂</span>
+              <p class="dropzone-title">点击选择书签文件，或拖拽到此处</p>
+              <p class="dropzone-hint">支持 Chrome 导出的书签 HTML 文件（.html）</p>
+              <input type="file" id="file_input" accept=".html,.htm" hidden>
+              <button type="button" id="btn_select_file" class="btn btn-secondary">
+                <span class="btn-icon">📁</span> 选择文件
+              </button>
+            </div>
+          </div>
+          <!-- 文件选中后显示摘要 -->
+          <div id="file_info" class="file-info" style="display:none">
+            <div class="file-info-row">
+              <span class="file-info-icon">📄</span>
+              <span id="file_name">-</span>
+              <span class="file-info-count" id="file_count">0 条书签</span>
+              <button type="button" id="btn_clear_file" class="btn btn-text">✕ 清除</button>
+            </div>
+            <div class="import-actions">
+              <button type="button" id="btn_start_import" class="btn btn-primary">
+                <span class="btn-icon">🚀</span> 开始批量同步
+              </button>
+              <span class="import-hint">将逐条分析并同步，请保持浏览器运行</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 进度区域 -->
+        <div id="import_progress" class="import-progress" style="display:none">
+          <div class="progress-header">
+            <div class="progress-header-left">
+              <span class="progress-title" id="progress_title">正在处理...</span>
+              <span class="progress-counter" id="progress_counter">0 / 0</span>
+            </div>
+            <button type="button" id="btn_cancel_import" class="btn btn-text btn-cancel">✕ 取消</button>
+          </div>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="progress_fill"></div>
+          </div>
+          <div class="progress-stats">
+            <span class="stat stat-success">✅ <span id="stat_success">0</span></span>
+            <span class="stat stat-fail">❌ <span id="stat_fail">0</span></span>
+            <span class="stat stat-skip">⏭️ <span id="stat_skip">0</span></span>
+          </div>
+          <div class="progress-current" id="progress_current"></div>
+        </div>
+
+        <!-- 结果汇总 -->
+        <div id="import_result" class="import-result" style="display:none">
+          <div class="result-card" id="result_card">
+            <!-- 动态填充 -->
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ====== 底部操作栏 ====== -->
     <footer class="page-footer">
       <button type="button" id="btn_save" class="btn btn-primary">

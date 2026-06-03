@@ -1,10 +1,11 @@
 /**
  * options.js — 配置页面交互逻辑
  *
- * 管理三个配置区域：
+ * 管理四个配置区域：
  * 1. 云文档配置（飞书）
  * 2. 大模型配置（多厂家选择）
  * 3. 用量设置
+ * 4. 批量导入书签
  */
 
 // ==================== 页面加载 ====================
@@ -13,6 +14,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
   await loadUsage();
   bindEvents();
+  bindImportEvents();
+  bindProgressListener();
 });
 
 // ==================== 加载配置 ====================
@@ -263,4 +266,206 @@ function showToast(message, type) {
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
   }, 3000);
+}
+
+// ==================== 批量导入书签 ====================
+
+let parsedBookmarks = [];    // 解析后的书签列表
+let importInProgress = false;
+
+function bindImportEvents() {
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file_input');
+  const btnSelect = document.getElementById('btn_select_file');
+  const btnClear = document.getElementById('btn_clear_file');
+  const btnStart = document.getElementById('btn_start_import');
+  const btnCancel = document.getElementById('btn_cancel_import');
+
+  // 点击选择文件
+  btnSelect.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('click', (e) => {
+    if (e.target !== btnSelect) fileInput.click();
+  });
+
+  // 文件选择
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) handleFile(fileInput.files[0]);
+  });
+
+  // 拖拽
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+  });
+
+  // 清除文件 + 开始导入 + 取消
+  btnClear.addEventListener('click', clearFile);
+  btnStart.addEventListener('click', startImport);
+  btnCancel.addEventListener('click', cancelImport);
+}
+
+async function handleFile(file) {
+  if (!file.name.endsWith('.html') && !file.name.endsWith('.htm')) {
+    showToast('请选择 .html 格式的书签文件', 'error');
+    return;
+  }
+
+  try {
+    const html = await file.text();
+    const result = await chrome.runtime.sendMessage({ type: 'parse_bookmark_file', html });
+    if (!result.success) {
+      showToast('解析失败：' + result.message, 'error');
+      return;
+    }
+    parsedBookmarks = result.bookmarks;
+    if (parsedBookmarks.length === 0) {
+      showToast('未在文件中找到有效书签', 'error');
+      return;
+    }
+
+    // 显示文件信息
+    document.getElementById('dropzone').style.display = 'none';
+    document.getElementById('file_info').style.display = 'flex';
+    document.getElementById('file_name').textContent = file.name;
+    document.getElementById('file_count').textContent = `${parsedBookmarks.length} 条书签`;
+    document.getElementById('import_result').style.display = 'none';
+
+    showToast(`解析成功，共 ${parsedBookmarks.length} 条书签`, 'success');
+  } catch (error) {
+    showToast('读取文件失败：' + error.message, 'error');
+  }
+}
+
+function clearFile() {
+  parsedBookmarks = [];
+  document.getElementById('file_input').value = '';
+  document.getElementById('dropzone').style.display = '';
+  document.getElementById('file_info').style.display = 'none';
+  document.getElementById('import_progress').style.display = 'none';
+  document.getElementById('import_result').style.display = 'none';
+  importInProgress = false;
+}
+
+async function startImport() {
+  if (parsedBookmarks.length === 0) {
+    showToast('请先选择书签文件', 'error');
+    return;
+  }
+
+  importInProgress = true;
+
+  // 切换到进度视图
+  document.getElementById('file_info').style.display = 'none';
+  document.getElementById('import_progress').style.display = 'flex';
+  document.getElementById('import_result').style.display = 'none';
+
+  // 重置进度
+  document.getElementById('progress_fill').style.width = '0%';
+  document.getElementById('progress_counter').textContent = `0 / ${parsedBookmarks.length}`;
+  document.getElementById('stat_success').textContent = '0';
+  document.getElementById('stat_fail').textContent = '0';
+  document.getElementById('stat_skip').textContent = '0';
+  document.getElementById('progress_current').textContent = '';
+  document.getElementById('progress_title').textContent = '准备中...';
+
+  // 发送到后台处理
+  chrome.runtime.sendMessage({ type: 'start_import', bookmarks: parsedBookmarks })
+    .catch(() => {
+      // 后台可能未响应，但进度会通过 import_progress 消息回报
+    });
+}
+
+function cancelImport() {
+  chrome.runtime.sendMessage({ type: 'cancel_import' });
+  document.getElementById('progress_title').textContent = '正在取消...';
+}
+
+// ==================== 监听后台进度消息 ====================
+
+function bindProgressListener() {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type !== 'import_progress' && message.type !== 'import_complete') return;
+
+    if (message.type === 'import_progress') {
+      updateProgress(message);
+    }
+
+    if (message.type === 'import_complete') {
+      showResult(message);
+      importInProgress = false;
+    }
+  });
+}
+
+function updateProgress(data) {
+  const pct = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+
+  document.getElementById('progress_counter').textContent = `${data.current || 0} / ${data.total}`;
+  document.getElementById('progress_fill').style.width = `${pct}%`;
+  document.getElementById('stat_success').textContent = data.successCount || 0;
+  document.getElementById('stat_fail').textContent = data.failCount || 0;
+  document.getElementById('stat_skip').textContent = data.skippedCount || 0;
+
+  if (data.phase === 'start') {
+    document.getElementById('progress_title').textContent = '准备中...';
+  } else if (data.phase === 'processing') {
+    document.getElementById('progress_title').textContent = '正在处理...';
+    document.getElementById('progress_current').textContent = data.currentTitle || '';
+  } else if (data.phase === 'blocked') {
+    document.getElementById('progress_title').textContent = '用量已达上限';
+    document.getElementById('progress_current').textContent = data.message || '';
+    showToast(data.message, 'error');
+  } else if (data.phase === 'cancelled') {
+    document.getElementById('progress_title').textContent = '已取消';
+  } else if (data.phase === 'complete') {
+    document.getElementById('progress_title').textContent = '处理完成';
+    document.getElementById('progress_current').textContent = '';
+  }
+}
+
+function showResult(data) {
+  const resultDiv = document.getElementById('import_result');
+  const card = document.getElementById('result_card');
+
+  resultDiv.style.display = 'block';
+  document.getElementById('import_progress').style.display = 'none';
+
+  const failCount = data.failCount || 0;
+  const successCount = data.successCount || 0;
+  const skippedCount = data.skippedCount || 0;
+  const cancelled = data.cancelled;
+
+  let icon, title, cardClass;
+  if (cancelled) {
+    icon = '⚠️'; title = '导入已取消'; cardClass = 'result-cancelled';
+  } else if (failCount === 0 && successCount > 0) {
+    icon = '🎉'; title = '全部导入成功'; cardClass = 'result-success';
+  } else if (successCount > 0 || failCount > 0) {
+    icon = '📋'; title = '导入完成（含失败项）'; cardClass = 'result-partial';
+  } else {
+    icon = '📋'; title = '无记录被处理'; cardClass = 'result-cancelled';
+  }
+
+  card.className = `result-card ${cardClass}`;
+  card.innerHTML = `
+    <div class="result-title">${icon} ${title}</div>
+    <div class="result-detail">
+      总书签数：<strong>${data.total}</strong><br>
+      成功同步：<strong style="color:var(--color-success)">${successCount}</strong> 条<br>
+      同步失败：<strong style="color:var(--color-error)">${failCount}</strong> 条<br>
+      跳过处理：<strong style="color:var(--color-text-tertiary)">${skippedCount}</strong> 条
+      ${failCount > 0 ? `<br><br>💡 <em>失败的书签已自动记录到飞书「同步失败记录」表中，可前往查看。</em>` : ''}
+    </div>
+    <div class="result-actions">
+      <button type="button" class="btn btn-secondary" onclick="document.getElementById('btn_clear_file').click()">
+        📂 选择其他文件
+      </button>
+    </div>
+  `;
+
+  // 更新用量显示
+  loadUsage();
 }

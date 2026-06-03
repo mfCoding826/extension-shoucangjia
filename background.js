@@ -11,7 +11,12 @@
 
 // ==================== 依赖注入：通过 importScripts 加载模块 ====================
 
-importScripts('lib/storage.js', 'lib/llm.js', 'lib/cloud-doc.js');
+importScripts('lib/storage.js', 'lib/llm.js', 'lib/cloud-doc.js', 'lib/bookmark-parser.js');
+
+// ==================== 批量导入状态 ====================
+
+let batchRunning = false;   // 是否有批量任务进行中
+let batchCancelled = false; // 是否已取消
 
 // ==================== 书签创建事件监听 ====================
 
@@ -124,6 +129,139 @@ async function handleBookmarkCreated(bookmark) {
     '收藏同步成功 ✅',
     `类型：${pageType} | 今日已用 ${newUsage.today}/${newUsage.limit} 次`
   );
+}
+
+// ==================== 批量导入书签 ====================
+
+/**
+ * 批量处理书签列表（逐条串行执行）
+ * @param {Array<{title: string, url: string, folder?: string}>} bookmarks
+ */
+async function processBatchImport(bookmarks) {
+  if (batchRunning) {
+    return { success: false, message: '已有批量任务在执行中' };
+  }
+
+  batchRunning = true;
+  batchCancelled = false;
+
+  const config = await getConfig();
+
+  // 预检查配置
+  if (!config.llm_api_key) {
+    batchRunning = false;
+    return { success: false, message: '请先配置大模型 API Key' };
+  }
+  if (!config.feishu_app_id || !config.feishu_app_secret) {
+    batchRunning = false;
+    return { success: false, message: '请先配置飞书应用信息' };
+  }
+
+  let total = bookmarks.length;
+  let successCount = 0;
+  let failCount = 0;
+  let skippedCount = 0;
+
+  sendProgress({ phase: 'start', total, message: `开始处理 ${total} 条书签...` });
+
+  for (let i = 0; i < bookmarks.length; i++) {
+    // 检查是否取消
+    if (batchCancelled) {
+      sendProgress({ phase: 'cancelled', current: i, total, successCount, failCount, skippedCount });
+      batchRunning = false;
+      batchCancelled = false;
+      return { success: false, cancelled: true, total, successCount, failCount, skippedCount };
+    }
+
+    const bm = bookmarks[i];
+
+    // 检查每日用量
+    const usage = await getDailyUsage();
+    if (usage.blocked) {
+      sendProgress({
+        phase: 'blocked',
+        current: i,
+        total,
+        successCount,
+        failCount,
+        skippedCount,
+        message: `每日 API 用量已达上限 (${usage.today}/${usage.limit})，剩余 ${total - i} 条跳过`
+      });
+      skippedCount += (total - i);
+      break;
+    }
+
+    sendProgress({
+      phase: 'processing',
+      current: i + 1,
+      total,
+      successCount,
+      failCount,
+      skippedCount,
+      currentTitle: bm.title
+    });
+
+    // 校验 URL
+    if (!bm.url || (!bm.url.startsWith('http://') && !bm.url.startsWith('https://'))) {
+      skippedCount++;
+      await addFailedRecord(bm, '无效 URL：' + (bm.url || '（空）'));
+      continue;
+    }
+
+    // 使用书签标题作为内容（批量模式下不打开页面）
+    const content = bm.title || '';
+    const title = bm.title || '';
+
+    try {
+      // 分类和摘要并行
+      const [pageType, pageSummary] = await Promise.all([
+        classifyPage(title, bm.url, content),
+        summarizePage(title, content)
+      ]);
+
+      await incrementDailyUsage();
+      await incrementDailyUsage();
+
+      // 写入飞书
+      await addRecord({
+        page_type: pageType,
+        page_url: bm.url,
+        page_summary: pageSummary
+      });
+
+      successCount++;
+      console.log(`[智能收藏夹] [${i + 1}/${total}] ✅ ${title}`);
+    } catch (error) {
+      failCount++;
+      console.error(`[智能收藏夹] [${i + 1}/${total}] ❌ ${title}:`, error.message);
+      // 失败记录写入飞书「同步失败记录」表
+      await addFailedRecord(bm, error.message);
+    }
+  }
+
+  sendProgress({
+    phase: 'complete',
+    current: total,
+    total,
+    successCount,
+    failCount,
+    skippedCount,
+    message: `处理完成：成功 ${successCount}，失败 ${failCount}，跳过 ${skippedCount}`
+  });
+
+  batchRunning = false;
+  batchCancelled = false;
+
+  return { success: true, total, successCount, failCount, skippedCount };
+}
+
+/**
+ * 向 options 页面发送进度消息
+ */
+function sendProgress(data) {
+  chrome.runtime.sendMessage({ type: 'import_progress', ...data }).catch(() => {
+    // options 页面可能未打开，忽略发送失败
+  });
 }
 
 // ==================== 页面内容抓取 ====================
@@ -250,13 +388,35 @@ function showNotification(title, message) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'validate_feishu') {
-    // 异步验证飞书配置
-    validateFeishuConfig().then(result => {
-      sendResponse(result);
-    }).catch(error => {
-      sendResponse({ success: false, message: error.message });
+    validateFeishuConfig().then(sendResponse).catch(err => sendResponse({ success: false, message: err.message }));
+    return true;
+  }
+
+  if (message.type === 'parse_bookmark_file') {
+    // 在 Service Worker 中解析书签文件（避免大文件在页面线程阻塞）
+    try {
+      const bookmarks = parseBookmarkFile(message.html);
+      // 在 Service Worker 中 htmlDecode 可能没有 DOM
+      sendResponse({ success: true, bookmarks });
+    } catch (err) {
+      sendResponse({ success: false, message: err.message });
+    }
+    return false; // 同步响应
+  }
+
+  if (message.type === 'start_import') {
+    // 启动批量导入（异步，进度通过 sendMessage 回报）
+    processBatchImport(message.bookmarks).then(summary => {
+      chrome.runtime.sendMessage({ type: 'import_complete', ...summary }).catch(() => {});
     });
-    return true; // 保持消息通道开启，等待异步响应
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'cancel_import') {
+    batchCancelled = true;
+    sendResponse({ success: true });
+    return false;
   }
 });
 
