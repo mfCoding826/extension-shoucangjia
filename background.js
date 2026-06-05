@@ -76,15 +76,20 @@ chrome.bookmarks.onCreated.addListener(async (id, bookmark) => {
  * 处理新创建的书签
  */
 async function handleBookmarkCreated(bookmark) {
+  // 每次收藏用独立通知 ID，避免多次收藏互相覆盖
+  const notifyId = 'sync-' + Date.now();
+
   // --- 1. 过滤空收藏（没有 URL 的书签） ---
   if (!bookmark.url) {
     addLog('warn', '跳过空收藏（无URL）');
+    clearStageBadge(notifyId);
     return;
   }
 
   // 过滤非 http/https 协议的 URL
   if (!bookmark.url.startsWith('http://') && !bookmark.url.startsWith('https://')) {
     addLog('warn', `跳过非HTTP协议: ${bookmark.url}`);
+    clearStageBadge(notifyId);
     return;
   }
 
@@ -93,6 +98,7 @@ async function handleBookmarkCreated(bookmark) {
   if (usage.blocked) {
     addLog('warn', `每日用量已达上限: ${usage.today}/${usage.limit}`);
     showNotification('达到每日上限', `今日已使用 ${usage.today}/${usage.limit} 次，请在设置中调整上限`);
+    clearStageBadge(notifyId);
     return;
   }
 
@@ -103,15 +109,19 @@ async function handleBookmarkCreated(bookmark) {
   if (!llmConfig.api_key) {
     addLog('warn', '未配置大模型 API Key');
     showNotification('配置不完整', '请先设置大模型 API Key');
+    clearStageBadge(notifyId);
     return;
   }
   if (!config.feishu_app_id || !config.feishu_app_secret) {
     addLog('warn', '未配置飞书应用信息');
     showNotification('配置不完整', '请先设置飞书应用配置');
+    clearStageBadge(notifyId);
     return;
   }
 
   // --- 4. 抓取页面内容 ---
+  setStageBadge('📄');
+  showStageNotification(notifyId, 'fetching', bookmark.title.substring(0, 30));
   let pageData = null;
   try {
     pageData = await fetchPageContent(bookmark.url);
@@ -126,15 +136,19 @@ async function handleBookmarkCreated(bookmark) {
   }
 
   // --- 5. 检查重复（提前到 LLM 调用前，避免浪费 API 额度） ---
+  setStageBadge('🔍');
+  showStageNotification(notifyId, 'checking', pageData.title.substring(0, 30));
   const dupCheck = await findRecordByUrl(pageData.url);
   if (dupCheck.found) {
+    clearStageBadge(notifyId);
+    showStageNotification(notifyId, 'duplicate', '', `「${pageData.title.substring(0, 30)}」已在云文档中`);
     addLog('warn', `URL 已存在，跳过: ${pageData.url}`);
-    showNotification('已存在，跳过', `「${pageData.title.substring(0, 30)}」已在云文档中`);
     return;
   }
 
   // --- 6. 调用大模型生成摘要 ---
-  showNotification('正在分析...', `正在分析「${pageData.title.substring(0, 30)}」`);
+  setStageBadge('🤖');
+  showStageNotification(notifyId, 'summarizing', pageData.title.substring(0, 30));
 
   let pageSummary;
 
@@ -143,12 +157,15 @@ async function handleBookmarkCreated(bookmark) {
     await incrementDailyUsage();
     addLog('success', `大模型分析完成: 摘要="${pageSummary.substring(0, 30)}..."`);
   } catch (llmError) {
+    clearStageBadge(notifyId);
+    showStageNotification(notifyId, 'llm_error', '', llmError.message);
     addLog('error', `大模型调用失败: ${llmError.message}`, JSON.stringify({ url: pageData.url }));
-    showNotification('分析失败', `大模型调用失败：${llmError.message}`);
     return;
   }
 
   // --- 7. 写入飞书多维表格 ---
+  setStageBadge('☁️');
+  showStageNotification(notifyId, 'writing', pageData.title.substring(0, 30));
   try {
     await addRecord({
       page_url: pageData.url,
@@ -156,16 +173,18 @@ async function handleBookmarkCreated(bookmark) {
     });
     addLog('success', `飞书写入成功: ${pageData.title.substring(0, 30)}`);
   } catch (feishuError) {
+    clearStageBadge(notifyId);
+    showStageNotification(notifyId, 'write_error', '', feishuError.message);
     addLog('error', `飞书写入失败: ${feishuError.message}`, JSON.stringify({ url: pageData.url }));
-    showNotification('同步失败', `飞书写入失败：${feishuError.message}`);
     return;
   }
 
   // --- 8. 成功通知 ---
+  setStageBadge('✅');
+  setTimeout(() => clearStageBadge(notifyId), 3000);
   const newUsage = await getDailyUsage();
   addLog('success', `同步完成 ✅ 用量=${newUsage.today}/${newUsage.limit}`);
-  showNotification(
-    '收藏同步成功 ✅',
+  showStageNotification(notifyId, 'done', '',
     `摘要：${pageSummary.substring(0, 30)}... | 今日已用 ${newUsage.today}/${newUsage.limit} 次`
   );
 }
@@ -242,7 +261,8 @@ async function processBatchImport(bookmarks) {
       successCount,
       failCount,
       skippedCount,
-      currentTitle: bm.title
+      currentTitle: bm.title,
+      currentStage: 'checking'
     });
 
     // 校验 URL
@@ -251,8 +271,6 @@ async function processBatchImport(bookmarks) {
       await addFailedRecord(bm, '无效 URL：' + (bm.url || '（空）'));
       continue;
     }
-
-    // 检查重复（云端 + 同批次内）
     if (processedUrls.has(bm.url)) {
       skippedCount++;
       continue;
@@ -271,10 +289,30 @@ async function processBatchImport(bookmarks) {
 
     try {
       // 生成摘要
+      sendProgress({
+        phase: 'processing',
+        current: i + 1,
+        total,
+        successCount,
+        failCount,
+        skippedCount,
+        currentTitle: bm.title,
+        currentStage: 'summarizing'
+      });
       const pageSummary = await summarizePage(title, content);
       await incrementDailyUsage();
 
       // 写入飞书
+      sendProgress({
+        phase: 'processing',
+        current: i + 1,
+        total,
+        successCount,
+        failCount,
+        skippedCount,
+        currentTitle: bm.title,
+        currentStage: 'writing'
+      });
       await addRecord({
         page_url: bm.url,
         page_summary: pageSummary
@@ -362,7 +400,8 @@ async function processRetryFailed() {
     const record = failedRecords[i];
     sendProgress({
       phase: 'processing', current: i + 1, total, successCount, failCount, skippedCount: 0,
-      currentTitle: record.title
+      currentTitle: record.title,
+      currentStage: 'checking'
     });
 
     if (!record.url || (!record.url.startsWith('http://') && !record.url.startsWith('https://'))) {
@@ -380,10 +419,20 @@ async function processRetryFailed() {
     }
 
     try {
+      sendProgress({
+        phase: 'processing', current: i + 1, total, successCount, failCount, skippedCount: 0,
+        currentTitle: record.title,
+        currentStage: 'summarizing'
+      });
       const pageSummary = await summarizePage(record.title, record.title);
       await incrementDailyUsage();
 
       // 写入书签收藏表
+      sendProgress({
+        phase: 'processing', current: i + 1, total, successCount, failCount, skippedCount: 0,
+        currentTitle: record.title,
+        currentStage: 'writing'
+      });
       await addRecord({ page_url: record.url, page_summary: pageSummary });
 
       // 从失败表删除
@@ -559,6 +608,60 @@ function showNotification(title, message) {
     message: message,
     priority: 1
   });
+}
+
+// ==================== 阶段通知 ====================
+
+/**
+ * 显示/更新同步阶段通知（单条收藏时用，实时显示当前在做什么）
+ * @param {string} stage - 阶段标识
+ * @param {string} [title] - 书签标题
+ * @param {string} [detail] - 额外信息（成功/失败时用）
+ */
+function showStageNotification(notifyId, stage, title, detail) {
+  const stageInfo = {
+    'fetching':    { title: '📑 正在同步书签', message: `📄 抓取页面内容：${title || '...'}` },
+    'checking':    { title: '📑 正在同步书签', message: `🔍 检查是否已在云文档中：${title || '...'}` },
+    'summarizing': { title: '📑 正在同步书签', message: `🤖 AI 生成摘要：${title || '...'}` },
+    'writing':     { title: '📑 正在同步书签', message: `☁️ 写入飞书多维表格：${title || '...'}` },
+    'done':        { title: '✅ 收藏同步成功', message: detail || '同步完成' },
+    'duplicate':   { title: '⏭️ 已存在，跳过', message: detail || '' },
+    'llm_error':   { title: '❌ AI 分析失败', message: detail || '' },
+    'write_error': { title: '❌ 飞书写入失败', message: detail || '' },
+  };
+
+  const info = stageInfo[stage] || { title: '同步中...', message: stage };
+  const payload = {
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title: info.title,
+    message: info.message,
+    priority: 1
+  };
+
+  // 始终用 create —— Chrome 对相同 ID 重复 create 等效于 update
+  chrome.notifications.create(notifyId, payload)
+    .then(id => console.log('[智能收藏夹] 通知已显示:', stage, id))
+    .catch(err => console.warn('[智能收藏夹] 通知失败:', stage, err.message));
+}
+
+/**
+ * 在扩展图标上显示当前处理阶段 Badge（辅助，固定到工具栏才能看到）
+ * @param {string} emoji - 阶段图标
+ */
+function setStageBadge(emoji) {
+  chrome.action.setBadgeText({ text: emoji }).catch(() => {});
+  chrome.action.setBadgeBackgroundColor({ color: '#5e6ad2' }).catch(() => {});
+}
+
+/**
+ * 清除扩展图标上的阶段标识
+ */
+function clearStageBadge(notifyId) {
+  chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  if (notifyId) {
+    chrome.notifications.clear(notifyId).catch(() => {});
+  }
 }
 
 // ==================== 消息监听（供 options 页面调用） ====================

@@ -717,6 +717,35 @@ select option {
   transition: width 300ms ease;
 }
 
+/* 阶段指示器 */
+.progress-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-primary-light);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-primary);
+  border-left: 3px solid var(--color-primary);
+}
+
+.stage-icon {
+  font-size: 18px;
+  line-height: 1;
+  animation: pulse-icon 1.2s ease-in-out infinite;
+}
+
+.stage-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+@keyframes pulse-icon {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
 .progress-stats {
   display: flex;
   gap: var(--space-md);

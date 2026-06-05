@@ -605,6 +605,7 @@ async function retryFailed() {
   document.getElementById('stat_skip').textContent = '0';
   document.getElementById('progress_current').textContent = '';
   document.getElementById('progress_title').textContent = '正在读取飞书失败记录...';
+  resetStage();
 
   chrome.runtime.sendMessage({ type: 'retry_failed' }).catch(() => {});
 }
@@ -674,6 +675,7 @@ async function startImport() {
   document.getElementById('stat_skip').textContent = '0';
   document.getElementById('progress_current').textContent = '';
   document.getElementById('progress_title').textContent = '准备中...';
+  resetStage();
 
   // 发送到后台处理
   chrome.runtime.sendMessage({ type: 'start_import', bookmarks: parsedBookmarks })
@@ -720,19 +722,44 @@ function updateProgress(data) {
 
   if (data.phase === 'start') {
     document.getElementById('progress_title').textContent = '准备中...';
+    updateStage('📌', '准备中...');
   } else if (data.phase === 'processing') {
     document.getElementById('progress_title').textContent = '正在处理...';
     document.getElementById('progress_current').textContent = data.currentTitle || '';
+    if (data.currentStage) {
+      const stageMap = {
+        'checking':     { icon: '🔍', label: '检查重复 / 校验 URL' },
+        'fetching':     { icon: '📄', label: '抓取页面内容' },
+        'summarizing':  { icon: '🤖', label: '大模型生成摘要' },
+        'writing':      { icon: '☁️', label: '写入飞书多维表格' }
+      };
+      const s = stageMap[data.currentStage] || { icon: '📌', label: data.currentStage };
+      updateStage(s.icon, s.label);
+    }
   } else if (data.phase === 'blocked') {
     document.getElementById('progress_title').textContent = '用量已达上限';
     document.getElementById('progress_current').textContent = data.message || '';
+    updateStage('⏸️', '已暂停（用量上限）');
     showToast(data.message, 'error');
   } else if (data.phase === 'cancelled') {
     document.getElementById('progress_title').textContent = '已取消';
+    updateStage('🚫', '已取消');
   } else if (data.phase === 'complete') {
     document.getElementById('progress_title').textContent = '处理完成';
     document.getElementById('progress_current').textContent = '';
+    updateStage('✅', '处理完成');
   }
+}
+
+function updateStage(icon, label) {
+  const stageIcon = document.getElementById('stage_icon');
+  const stageLabel = document.getElementById('stage_label');
+  if (stageIcon) stageIcon.textContent = icon;
+  if (stageLabel) stageLabel.textContent = label;
+}
+
+function resetStage() {
+  updateStage('📌', '准备中...');
 }
 
 function showResult(data) {
