@@ -219,6 +219,24 @@ body {
   line-height: 1.4;
 }
 
+.table-url-display {
+  margin-top: 6px;
+  font-size: 13px;
+  padding: 6px 10px;
+  background: var(--color-bg);
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.table-url-display a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.table-url-display a:hover {
+  text-decoration: underline;
+}
+
 /* ==================== 输入框 ==================== */
 
 input[type="text"],

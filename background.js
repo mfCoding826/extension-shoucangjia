@@ -98,8 +98,9 @@ async function handleBookmarkCreated(bookmark) {
 
   // --- 3. 获取配置 ---
   const config = await getConfig();
+  const llmConfig = await getCurrentLlmConfig();
 
-  if (!config.llm_api_key) {
+  if (!llmConfig.api_key) {
     addLog('warn', '未配置大模型 API Key');
     showNotification('配置不完整', '请先设置大模型 API Key');
     return;
@@ -124,46 +125,48 @@ async function handleBookmarkCreated(bookmark) {
     };
   }
 
-  // --- 5. 调用大模型 API ---
+  // --- 5. 检查重复（提前到 LLM 调用前，避免浪费 API 额度） ---
+  const dupCheck = await findRecordByUrl(pageData.url);
+  if (dupCheck.found) {
+    addLog('warn', `URL 已存在，跳过: ${pageData.url}`);
+    showNotification('已存在，跳过', `「${pageData.title.substring(0, 30)}」已在云文档中`);
+    return;
+  }
+
+  // --- 6. 调用大模型生成摘要 ---
   showNotification('正在分析...', `正在分析「${pageData.title.substring(0, 30)}」`);
 
-  let pageType, pageSummary;
+  let pageSummary;
 
   try {
-    [pageType, pageSummary] = await Promise.all([
-      classifyPage(pageData.title, pageData.url, pageData.content),
-      summarizePage(pageData.title, pageData.content)
-    ]);
-
+    pageSummary = await summarizePage(pageData.title, pageData.content);
     await incrementDailyUsage();
-    await incrementDailyUsage();
-    addLog('success', `大模型分析完成: 类型="${pageType}" 摘要="${pageSummary.substring(0, 30)}..."`);
+    addLog('success', `大模型分析完成: 摘要="${pageSummary.substring(0, 30)}..."`);
   } catch (llmError) {
     addLog('error', `大模型调用失败: ${llmError.message}`, JSON.stringify({ url: pageData.url }));
     showNotification('分析失败', `大模型调用失败：${llmError.message}`);
     return;
   }
 
-  // --- 6. 写入飞书多维表格 ---
+  // --- 7. 写入飞书多维表格 ---
   try {
     await addRecord({
-      page_type: pageType,
       page_url: pageData.url,
       page_summary: pageSummary
     });
     addLog('success', `飞书写入成功: ${pageData.title.substring(0, 30)}`);
   } catch (feishuError) {
-    addLog('error', `飞书写入失败: ${feishuError.message}`, JSON.stringify({ url: pageData.url, type: pageType }));
+    addLog('error', `飞书写入失败: ${feishuError.message}`, JSON.stringify({ url: pageData.url }));
     showNotification('同步失败', `飞书写入失败：${feishuError.message}`);
     return;
   }
 
-  // --- 7. 成功通知 ---
+  // --- 8. 成功通知 ---
   const newUsage = await getDailyUsage();
-  addLog('success', `同步完成 ✅ 类型=${pageType} 用量=${newUsage.today}/${newUsage.limit}`);
+  addLog('success', `同步完成 ✅ 用量=${newUsage.today}/${newUsage.limit}`);
   showNotification(
     '收藏同步成功 ✅',
-    `类型：${pageType} | 今日已用 ${newUsage.today}/${newUsage.limit} 次`
+    `摘要：${pageSummary.substring(0, 30)}... | 今日已用 ${newUsage.today}/${newUsage.limit} 次`
   );
 }
 
@@ -182,9 +185,10 @@ async function processBatchImport(bookmarks) {
   batchCancelled = false;
 
   const config = await getConfig();
+  const llmConfig = await getCurrentLlmConfig();
 
   // 预检查配置
-  if (!config.llm_api_key) {
+  if (!llmConfig.api_key) {
     batchRunning = false;
     return { success: false, message: '请先配置大模型 API Key' };
   }
@@ -197,6 +201,7 @@ async function processBatchImport(bookmarks) {
   let successCount = 0;
   let failCount = 0;
   let skippedCount = 0;
+  const processedUrls = new Set(); // 同批次去重
 
   addLog('info', `开始批量导入: ${total} 条书签`);
   sendProgress({ phase: 'start', total, message: `开始处理 ${total} 条书签...` });
@@ -247,23 +252,30 @@ async function processBatchImport(bookmarks) {
       continue;
     }
 
+    // 检查重复（云端 + 同批次内）
+    if (processedUrls.has(bm.url)) {
+      skippedCount++;
+      continue;
+    }
+    const dupCheck = await findRecordByUrl(bm.url);
+    if (dupCheck.found) {
+      processedUrls.add(bm.url);
+      skippedCount++;
+      continue;
+    }
+    processedUrls.add(bm.url);
+
     // 使用书签标题作为内容（批量模式下不打开页面）
     const content = bm.title || '';
     const title = bm.title || '';
 
     try {
-      // 分类和摘要并行
-      const [pageType, pageSummary] = await Promise.all([
-        classifyPage(title, bm.url, content),
-        summarizePage(title, content)
-      ]);
-
-      await incrementDailyUsage();
+      // 生成摘要
+      const pageSummary = await summarizePage(title, content);
       await incrementDailyUsage();
 
       // 写入飞书
       await addRecord({
-        page_type: pageType,
         page_url: bm.url,
         page_summary: pageSummary
       });
@@ -358,17 +370,21 @@ async function processRetryFailed() {
       continue;
     }
 
-    try {
-      const [pageType, pageSummary] = await Promise.all([
-        classifyPage(record.title, record.url, record.title),
-        summarizePage(record.title, record.title)
-      ]);
+    // 检查重复
+    const dupCheck = await findRecordByUrl(record.url);
+    if (dupCheck.found) {
+      // URL 已存在，直接从失败表删除该记录
+      try { await deleteFailedRecord(record.record_id); } catch (_) { /* 忽略 */ }
+      successCount++;
+      continue;
+    }
 
-      await incrementDailyUsage();
+    try {
+      const pageSummary = await summarizePage(record.title, record.title);
       await incrementDailyUsage();
 
       // 写入书签收藏表
-      await addRecord({ page_type: pageType, page_url: record.url, page_summary: pageSummary });
+      await addRecord({ page_url: record.url, page_summary: pageSummary });
 
       // 从失败表删除
       await deleteFailedRecord(record.record_id);
@@ -415,8 +431,19 @@ function sendProgress(data) {
  * @returns {Promise<{title: string, url: string, content: string}>}
  */
 async function fetchPageContent(url) {
-  // 查找是否已有该 URL 的标签页
-  const tabs = await chrome.tabs.query({ url: url });
+  // 规范化 URL（去除 fragment，统一尾部斜杠）用于匹配
+  const normalizedUrl = url.split('#')[0].replace(/\/+$/, '');
+
+  // 精确匹配
+  let tabs = await chrome.tabs.query({ url: url });
+  if (tabs.length === 0) {
+    // 未精确匹配，尝试在所有标签页中按规范化 URL 搜索
+    const allTabs = await chrome.tabs.query({});
+    tabs = allTabs.filter(t => {
+      if (!t.url) return false;
+      return t.url.split('#')[0].replace(/\/+$/, '') === normalizedUrl;
+    });
+  }
 
   if (tabs.length > 0) {
     // 在已有标签页中注入脚本
@@ -465,16 +492,24 @@ async function fetchPageContent(url) {
  */
 function waitForTabLoad(tabId) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+
     const timeout = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('页面加载超时（15 秒）'));
+      if (!settled) {
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error('页面加载超时（15 秒）'));
+      }
     }, 15000);
 
     const listener = (updatedTabId, changeInfo) => {
       if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        clearTimeout(timeout);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
       }
     };
 
@@ -531,6 +566,11 @@ function showNotification(title, message) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'validate_feishu') {
     validateFeishuConfig().then(sendResponse).catch(err => sendResponse({ success: false, message: err.message }));
+    return true;
+  }
+
+  if (message.type === 'create_feishu_table') {
+    createBitableAndTables().then(sendResponse).catch(err => sendResponse({ success: false, message: err.message }));
     return true;
   }
 

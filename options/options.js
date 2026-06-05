@@ -31,17 +31,20 @@ async function loadConfig() {
   setValue('feishu_table_app_token', config.feishu_table_app_token);
   setValue('feishu_table_name', config.feishu_table_name);
 
+  // 显示已有的多维表格链接
+  if (config.feishu_table_app_token) {
+    updateTableUrlDisplay(config.feishu_table_app_token,
+      `https://feishu.cn/base/${config.feishu_table_app_token}`);
+  }
+
   // 大模型配置
-  populateProviderSelect(config.llm_provider);
-  setValue('llm_api_key', config.llm_api_key);
-  setValue('llm_model_name', config.llm_model_name);
-  setValue('llm_base_url', config.llm_base_url);
+  currentProviderKey = config.llm_provider;
+  populateProviderSelect(config.llm_provider, config.custom_providers);
+  await loadProviderConfig(config.llm_provider, config);
+  toggleCustomFields();
 
   // 用量设置
   setValue('daily_limit', config.daily_limit);
-
-  // 显示/隐藏自定义字段
-  toggleCustomFields(config.llm_provider);
 }
 
 async function loadUsage() {
@@ -50,19 +53,29 @@ async function loadUsage() {
   document.getElementById('usage_limit_display').textContent = usage.limit;
 }
 
+function updateTableUrlDisplay(appToken, url) {
+  const display = document.getElementById('table_url_display');
+  if (!display) return;
+  // 只允许 http/https 协议的 URL
+  if (!/^https?:\/\//i.test(url)) return;
+  const safeUrl = url.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  display.style.display = '';
+  display.innerHTML = `🔗 多维表格地址：<a href="${safeUrl}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`;
+}
+
 // ==================== 厂家下拉框 ====================
 
-function populateProviderSelect(currentKey) {
+function populateProviderSelect(currentKey, customProviders) {
   const select = document.getElementById('llm_provider');
-  const providers = getAllProviders();
+  const providers = getAllProviders(customProviders || []);
 
   select.innerHTML = '';
 
-  // 分组：国内 / 国际 / 自定义
+  // 分组：国内 / 国际
   const groups = {
     cn: { label: '🌏 国内厂家', items: [] },
     intl: { label: '🌍 国际厂家', items: [] },
-    custom: { label: '✨ 自定义', items: [] }
+    custom: { label: '🔧 已添加的自定义模型', items: [] }
   };
 
   providers.forEach(p => {
@@ -84,6 +97,13 @@ function populateProviderSelect(currentKey) {
     });
     select.appendChild(optgroup);
   });
+
+  // 底部：新增自定义模型
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new_custom__';
+  newOpt.textContent = '➕ 新增自定义模型';
+  if (currentKey === '__new_custom__') newOpt.selected = true;
+  select.appendChild(newOpt);
 }
 
 // ==================== 事件绑定 ====================
@@ -97,6 +117,9 @@ function bindEvents() {
 
   // 验证飞书配置
   document.getElementById('btn_verify_feishu').addEventListener('click', onVerifyFeishu);
+
+  // 一键创建多维表格
+  document.getElementById('btn_create_feishu_table').addEventListener('click', onCreateFeishuTable);
 
   // 验证大模型配置
   document.getElementById('btn_verify_llm').addEventListener('click', onVerifyLlm);
@@ -119,42 +142,98 @@ function bindEvents() {
   });
 }
 
-function onProviderChange(e) {
-  const key = e.target.value;
-  const provider = getProviderByKey(key);
-  if (!provider) return;
+async function onProviderChange(e) {
+  if (rebuildingDropdown) return;
 
-  // 自定义选项不自动填充
-  if (key === 'custom') {
-    toggleCustomFields(true);
+  const key = e.target.value;
+
+  // 先保存当前厂家的配置
+  if (currentProviderKey && currentProviderKey !== '__new_custom__') {
+    await saveConfigForProvider(currentProviderKey);
+  }
+  currentProviderKey = key;
+
+  if (key === '__new_custom__') {
+    // 新增自定义模型：显示名称输入框，清空表单
+    document.getElementById('custom_name_group').style.display = 'flex';
+    setValue('custom_provider_name', '');
+    setValue('llm_api_key', '');
+    setValue('llm_model_name', '');
+    setValue('llm_base_url', '');
     return;
   }
 
-  toggleCustomFields(false);
+  // 判断是否为自定义厂家
+  const fullConfig = await getFullConfig();
+  const customProv = (fullConfig.custom_providers || []).find(cp => cp.key === key);
+  if (customProv) {
+    document.getElementById('custom_name_group').style.display = 'flex';
+    setValue('custom_provider_name', customProv.name);
+  } else {
+    document.getElementById('custom_name_group').style.display = 'none';
+  }
 
-  // 自动填充 base_url 和 model_name
-  setValue('llm_base_url', provider.base_url);
-  setValue('llm_model_name', provider.default_model);
+  // 加载新厂家的配置
+  await loadProviderConfig(key, fullConfig);
 }
 
-function toggleCustomFields(isCustom) {
-  // 自定义模式下允许编辑 base_url 和 model_name
+let currentProviderKey = null;
+let rebuildingDropdown = false;
+
+async function saveConfigForProvider(key) {
+  if (!key || key === '__new_custom__') return;
+
+  const name = getValue('custom_provider_name');
+  const fullConfig = await getFullConfig();
+
+  const llm_configs = {
+    ...fullConfig.llm_configs,
+    [key]: {
+      api_key: getValue('llm_api_key'),
+      model_name: getValue('llm_model_name'),
+      base_url: getValue('llm_base_url')
+    }
+  };
+
+  // 如果是自定义厂家，更新名称
+  let customProviders = fullConfig.custom_providers || [];
+  if (name) {
+    const idx = customProviders.findIndex(cp => cp.key === key);
+    if (idx >= 0) {
+      customProviders = [...customProviders];
+      customProviders[idx] = { ...customProviders[idx], name };
+    }
+  }
+
+  await saveConfig({ llm_configs, custom_providers: customProviders });
+}
+
+async function loadProviderConfig(providerKey, cachedConfig) {
+  const config = cachedConfig || await getFullConfig();
+  const provider = getProviderByKey(providerKey) || {};
+  const saved = (config.llm_configs && config.llm_configs[providerKey]) || {};
+
+  toggleCustomFields();
+
+  // 自定义厂家：显示名称输入框
+  const customProv = (config.custom_providers || []).find(cp => cp.key === providerKey);
+  if (customProv) {
+    document.getElementById('custom_name_group').style.display = 'flex';
+    setValue('custom_provider_name', customProv.name);
+  } else if (providerKey !== '__new_custom__') {
+    document.getElementById('custom_name_group').style.display = 'none';
+  }
+
+  setValue('llm_api_key', saved.api_key || '');
+  setValue('llm_model_name', saved.model_name || provider.default_model || '');
+  setValue('llm_base_url', saved.base_url || provider.base_url || '');
+}
+
+function toggleCustomFields() {
   const modelInput = document.getElementById('llm_model_name');
   const urlInput = document.getElementById('llm_base_url');
-
-  if (isCustom) {
-    modelInput.removeAttribute('readonly');
-    urlInput.removeAttribute('readonly');
-    modelInput.placeholder = '请输入模型名称';
-    urlInput.placeholder = '请输入完整的 Base URL';
-    modelInput.style.opacity = '1';
-    urlInput.style.opacity = '1';
-  } else {
-    modelInput.setAttribute('readonly', true);
-    urlInput.setAttribute('readonly', true);
-    modelInput.style.opacity = '0.7';
-    urlInput.style.opacity = '0.7';
-  }
+  if (modelInput) modelInput.removeAttribute('readonly');
+  if (urlInput) urlInput.removeAttribute('readonly');
 }
 
 // ==================== 保存 ====================
@@ -164,26 +243,91 @@ async function onSave() {
   setButtonLoading(btn, true);
 
   try {
-    const config = {
-      feishu_app_id: getValue('feishu_app_id'),
-      feishu_app_secret: getValue('feishu_app_secret'),
-      feishu_table_app_token: getValue('feishu_table_app_token'),
-      feishu_table_name: getValue('feishu_table_name'),
-      llm_provider: getValue('llm_provider'),
-      llm_api_key: getValue('llm_api_key'),
-      llm_model_name: getValue('llm_model_name'),
-      llm_base_url: getValue('llm_base_url'),
-      daily_limit: parseInt(getValue('daily_limit')) || 50
-    };
-
-    // 基本校验
-    if (config.daily_limit < 1 || config.daily_limit > 9999) {
+    const dailyLimit = parseInt(getValue('daily_limit')) || 50;
+    if (dailyLimit < 1 || dailyLimit > 9999) {
       showToast('每日限额必须在 1~9999 之间', 'error');
       setButtonLoading(btn, false);
       return;
     }
 
-    await saveConfig(config);
+    const currentProvider = getValue('llm_provider');
+    const customName = getValue('custom_provider_name').trim();
+
+    // 处理新增自定义模型
+    if (currentProvider === '__new_custom__') {
+      if (!customName) {
+        showToast('请输入自定义模型名称', 'error');
+        setButtonLoading(btn, false);
+        return;
+      }
+      // 生成唯一 key 并添加到自定义列表
+      const newKey = 'custom_' + Date.now();
+      const fullConfig = await getFullConfig();
+      const customProviders = [...(fullConfig.custom_providers || []), { key: newKey, name: customName }];
+
+      // 保存自定义厂家配置 + 列表
+      const llm_configs = {
+        ...fullConfig.llm_configs,
+        [newKey]: {
+          api_key: getValue('llm_api_key'),
+          model_name: getValue('llm_model_name'),
+          base_url: getValue('llm_base_url')
+        }
+      };
+
+      await saveConfig({
+        feishu_app_id: getValue('feishu_app_id'),
+        feishu_app_secret: getValue('feishu_app_secret'),
+        feishu_table_app_token: getValue('feishu_table_app_token'),
+        feishu_table_name: getValue('feishu_table_name'),
+        llm_provider: newKey,
+        llm_configs,
+        custom_providers: customProviders,
+        daily_limit: dailyLimit
+      });
+
+      currentProviderKey = newKey;
+      // 重建下拉框（阻止 change 事件引发重复保存）
+      rebuildingDropdown = true;
+      populateProviderSelect(newKey, customProviders);
+      rebuildingDropdown = false;
+      document.getElementById('custom_name_group').style.display = 'flex';
+      setValue('custom_provider_name', customName);
+    } else {
+      // 一次 saveConfig 写入全部字段（云文档 + LLM + 用量），避免两次写入不原子
+      const fullConfig = await getFullConfig();
+      const name = getValue('custom_provider_name').trim();
+      const llm_configs = {
+        ...fullConfig.llm_configs,
+        [currentProvider]: {
+          api_key: getValue('llm_api_key'),
+          model_name: getValue('llm_model_name'),
+          base_url: getValue('llm_base_url')
+        }
+      };
+
+      // 自定义厂家名称变更
+      let customProviders = fullConfig.custom_providers || [];
+      if (name) {
+        const idx = customProviders.findIndex(cp => cp.key === currentProvider);
+        if (idx >= 0) {
+          customProviders = [...customProviders];
+          customProviders[idx] = { ...customProviders[idx], name };
+        }
+      }
+
+      await saveConfig({
+        feishu_app_id: getValue('feishu_app_id'),
+        feishu_app_secret: getValue('feishu_app_secret'),
+        feishu_table_app_token: getValue('feishu_table_app_token'),
+        feishu_table_name: getValue('feishu_table_name'),
+        llm_provider: currentProvider,
+        llm_configs,
+        custom_providers: customProviders,
+        daily_limit: dailyLimit
+      });
+    }
+
     showToast('配置保存成功 ✅', 'success');
     await loadUsage();
   } catch (error) {
@@ -220,18 +364,99 @@ async function onVerifyFeishu() {
   }
 }
 
+async function onCreateFeishuTable() {
+  const btn = document.getElementById('btn_create_feishu_table');
+  const appId = getValue('feishu_app_id');
+  const appSecret = getValue('feishu_app_secret');
+
+  if (!appId || !appSecret) {
+    showToast('请先填写飞书 App ID 和 App Secret', 'error');
+    return;
+  }
+
+  if (!confirm('将使用飞书 API 自动创建多维表格（含「书签收藏」和「同步失败记录」两个数据表）。\n\n如果之前已配置过多维表格 ID，将被替换为新建的表格。\n\n确定继续吗？')) {
+    return;
+  }
+
+  setButtonLoading(btn, true, '创建中...');
+
+  try {
+    // 先保存 App ID 和 Secret（创建 API 需要）
+    await saveConfig({
+      feishu_app_id: appId,
+      feishu_app_secret: appSecret
+    });
+
+    const result = await chrome.runtime.sendMessage({ type: 'create_feishu_table' });
+    if (result.success) {
+      // 自动填入 app_token 和表名
+      setValue('feishu_table_app_token', result.app_token);
+      setValue('feishu_table_name', '书签收藏');
+
+      // 直接保存完整配置（不调用 onSave，避免重复 toast 和 UI 副作用）
+      const currentProvider = getValue('llm_provider');
+      const fullConfig = await getFullConfig();
+      const savePayload = {
+        feishu_app_id: appId,
+        feishu_app_secret: appSecret,
+        feishu_table_app_token: result.app_token,
+        feishu_table_name: '书签收藏',
+        llm_provider: currentProvider
+      };
+      // 同时保存当前 LLM 配置
+      if (currentProvider && currentProvider !== '__new_custom__') {
+        savePayload.llm_configs = {
+          ...fullConfig.llm_configs,
+          [currentProvider]: {
+            api_key: getValue('llm_api_key'),
+            model_name: getValue('llm_model_name'),
+            base_url: getValue('llm_base_url')
+          }
+        };
+      }
+      await saveConfig(savePayload);
+
+      // 显示多维表格 URL 并自动打开
+      const tableUrl = result.app_url || `https://feishu.cn/base/${result.app_token}`;
+      updateTableUrlDisplay(result.app_token, tableUrl);
+      chrome.tabs.create({ url: tableUrl, active: true });
+
+      showToast('多维表格创建成功！🎉 已在浏览器中打开，可直接使用。', 'success');
+    } else {
+      showToast('创建失败：' + result.message, 'error');
+    }
+  } catch (error) {
+    showToast('创建请求失败：' + error.message, 'error');
+  } finally {
+    setButtonLoading(btn, false, '一键创建多维表格');
+  }
+}
+
 async function onVerifyLlm() {
   const btn = document.getElementById('btn_verify_llm');
   setButtonLoading(btn, true, '测试中...');
 
   try {
-    // 先保存当前配置（测试需要用到）
-    await saveConfig({
-      llm_provider: getValue('llm_provider'),
-      llm_api_key: getValue('llm_api_key'),
-      llm_model_name: getValue('llm_model_name'),
-      llm_base_url: getValue('llm_base_url')
-    });
+    const provider = getValue('llm_provider');
+    // 测试前先保存当前表单内容
+    if (provider === '__new_custom__') {
+      // 还没保存过，先临时保存以便测试
+      const tempKey = 'custom_temp_' + Date.now();
+      const llm_configs = (await getFullConfig()).llm_configs || {};
+      llm_configs[tempKey] = {
+        api_key: getValue('llm_api_key'),
+        model_name: getValue('llm_model_name'),
+        base_url: getValue('llm_base_url')
+      };
+      await saveConfig({ llm_provider: tempKey, llm_configs });
+    } else {
+      await saveCurrentLlmConfig({
+        api_key: getValue('llm_api_key'),
+        model_name: getValue('llm_model_name'),
+        base_url: getValue('llm_base_url')
+      });
+      await saveConfig({ llm_provider: provider });
+    }
 
     const result = await chrome.runtime.sendMessage({ type: 'validate_llm' });
     if (result.success) {
@@ -539,12 +764,12 @@ function showResult(data) {
 
   card.className = `result-card ${cardClass}`;
   card.innerHTML = `
-    <div class="result-title">${icon} ${title}</div>
+    <div class="result-title">${escapeHtml(icon + ' ' + title)}</div>
     <div class="result-detail">
-      总数：<strong>${data.total}</strong><br>
-      成功：<strong style="color:var(--color-success)">${successCount}</strong> 条<br>
-      失败：<strong style="color:var(--color-error)">${failCount}</strong> 条<br>
-      跳过：<strong style="color:var(--color-text-tertiary)">${skippedCount}</strong> 条
+      总数：<strong>${Number(data.total) || 0}</strong><br>
+      成功：<strong style="color:var(--color-success)">${Number(successCount)}</strong> 条<br>
+      失败：<strong style="color:var(--color-error)">${Number(failCount)}</strong> 条<br>
+      跳过：<strong style="color:var(--color-text-tertiary)">${Number(skippedCount)}</strong> 条
       ${failCount > 0 ? `<br><br>💡 <em>失败的书签已自动记录到飞书「同步失败记录」表中，可点击上方按钮重试。</em>` : ''}
     </div>
     <div class="result-actions">
@@ -650,14 +875,7 @@ function renderLogs(logs) {
   // 检查是否在底部（自动滚动）
   const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
 
-  // 使用 innerHTML 替换全部日志（保持简洁）
-  const existing = container.querySelectorAll('.log-entry');
-  if (existing.length !== logs.length || logs.length === 0) {
-    container.innerHTML = html + '<div class="log-empty" id="log_empty" style="display:none">暂无日志</div>';
-  } else {
-    // 增量更新：只更新变化的部分
-    container.innerHTML = html + '<div class="log-empty" id="log_empty" style="display:none">暂无日志</div>';
-  }
+  container.innerHTML = html + '<div class="log-empty" id="log_empty" style="display:none">暂无日志</div>';
 
   if (wasAtBottom) {
     container.scrollTop = container.scrollHeight;

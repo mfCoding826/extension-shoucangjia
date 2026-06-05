@@ -49,20 +49,25 @@
             <div class="input-group">
               <input type="text" id="feishu_table_app_token" placeholder="xxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
             </div>
-            <span class="form-hint">从多维表格 URL 中复制：/base/{app_token}?...</span>
+            <span class="form-hint">点击「一键创建多维表格」自动填入，无需手动填写</span>
+            <div class="table-url-display" id="table_url_display" style="display:none"></div>
           </div>
           <div class="form-group">
             <label for="feishu_table_name">数据表名称</label>
             <div class="input-group">
               <input type="text" id="feishu_table_name" placeholder="书签收藏" autocomplete="off">
             </div>
-            <span class="form-hint">填写主表名称（默认「书签收藏」），失败记录表「同步失败记录」由插件自动识别，无需填写</span>
+            <span class="form-hint">主表名称（默认「书签收藏」），含页面URL和页面内容总结两列</span>
           </div>
         </div>
         <div class="form-actions">
           <button type="button" id="btn_verify_feishu" class="btn btn-secondary">
             <span class="btn-icon">🔍</span> 验证连接
           </button>
+          <button type="button" id="btn_create_feishu_table" class="btn btn-primary">
+            <span class="btn-icon">🪄</span> 一键创建多维表格
+          </button>
+          <span class="form-hint" style="margin-left:0">应用通过 API 自建表格 = 自动拥有完整读写权限，无需手动分享授权</span>
         </div>
       </div>
     </section>
@@ -81,7 +86,10 @@
           <div class="form-group">
             <label for="llm_provider">模型厂家</label>
             <select id="llm_provider"></select>
-            <span class="form-hint">选择后自动填充模型名称和接口地址</span>
+            <span class="form-hint">选择厂家自动填充，或选「新增自定义模型」创建新配置</span>
+            <div class="input-group" id="custom_name_group" style="display:none; margin-top:8px;">
+              <input type="text" id="custom_provider_name" placeholder="输入自定义模型名称" autocomplete="off">
+            </div>
           </div>
           <div class="form-group">
             <label for="llm_api_key">API Key</label>
@@ -94,16 +102,16 @@
           <div class="form-group">
             <label for="llm_model_name">模型名称</label>
             <div class="input-group">
-              <input type="text" id="llm_model_name" placeholder="deepseek-chat" readonly autocomplete="off">
+              <input type="text" id="llm_model_name" placeholder="deepseek-chat" autocomplete="off">
             </div>
-            <span class="form-hint">选择厂家后自动填充，自定义模式可手动修改</span>
+            <span class="form-hint">选择厂家后自动填充，可手动修改</span>
           </div>
           <div class="form-group">
             <label for="llm_base_url">Base URL</label>
             <div class="input-group">
-              <input type="text" id="llm_base_url" placeholder="https://api.deepseek.com/v1" readonly autocomplete="off">
+              <input type="text" id="llm_base_url" placeholder="https://api.deepseek.com/v1" autocomplete="off">
             </div>
-            <span class="form-hint">OpenAI 兼容接口地址，自定义模式可手动修改</span>
+            <span class="form-hint">OpenAI 兼容接口地址，选择厂家后自动填充，可手动修改</span>
           </div>
         </div>
         <div class="form-actions">
@@ -128,7 +136,7 @@
           <div class="form-group">
             <label for="daily_limit">每日 API 调用上限（次）</label>
             <input type="number" id="daily_limit" min="1" max="9999" value="50">
-            <span class="form-hint">每次收藏会调用 2 次 API（分类 + 摘要），建议设为 50~200</span>
+            <span class="form-hint">每次收藏调用 1 次 API（生成摘要），建议设为 50~200</span>
           </div>
           <div class="usage-status">
             <div class="usage-card">
