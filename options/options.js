@@ -118,6 +118,9 @@ function bindEvents() {
   // 验证飞书配置
   document.getElementById('btn_verify_feishu').addEventListener('click', onVerifyFeishu);
 
+  // 修复表格权限
+  document.getElementById('btn_fix_permissions').addEventListener('click', onFixPermissions);
+
   // 一键创建多维表格
   document.getElementById('btn_create_feishu_table').addEventListener('click', onCreateFeishuTable);
 
@@ -429,6 +432,35 @@ async function onCreateFeishuTable() {
     showToast('创建请求失败：' + error.message, 'error');
   } finally {
     setButtonLoading(btn, false, '一键创建多维表格');
+  }
+}
+
+async function onFixPermissions() {
+  const btn = document.getElementById('btn_fix_permissions');
+  const appToken = getValue('feishu_table_app_token');
+
+  if (!appToken) {
+    showToast('请先填写多维表格 ID 或使用「一键创建」生成', 'error');
+    return;
+  }
+
+  if (!confirm('将把该表格设置为「企业内成员可编辑」。\n\n修复后你和其他同事都可以在飞书网页中编辑这个表格。\n\n确定继续吗？')) {
+    return;
+  }
+
+  setButtonLoading(btn, true, '修复中...');
+
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'fix_table_permissions' });
+    if (result.success) {
+      showToast(result.message, 'success');
+    } else {
+      showToast(result.message, 'error');
+    }
+  } catch (error) {
+    showToast('修复请求失败：' + error.message, 'error');
+  } finally {
+    setButtonLoading(btn, false, '修复表格权限');
   }
 }
 

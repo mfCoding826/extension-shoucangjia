@@ -677,6 +677,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'fix_table_permissions') {
+    fixTablePermissions().then(sendResponse).catch(err => sendResponse({ success: false, message: err.message }));
+    return true;
+  }
+
   if (message.type === 'validate_llm') {
     validateLlmConfig().then(sendResponse).catch(err => sendResponse({ success: false, message: err.message }));
     return true;
